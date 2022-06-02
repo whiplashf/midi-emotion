@@ -51,7 +51,7 @@ class Runner:
 
         # Preprocessing
         train_feats, test_feats = preprocess_features(
-            "../data_files/features/pianoroll/full_dataset_features_summarized.csv",
+            "data_files/features/pianoroll/full_dataset_features_summarized.csv",
             n_bins=n_bins, conditional=conditional, 
             use_labeled_only=not args.full_dataset)
 
@@ -296,145 +296,148 @@ class Runner:
         train_interval_start = time.time()
 
         while True:
-            for input_, condition, target in self.train_loader:
-                self.model.train()
-                if input_ != []:
+            try:
+                for input_, condition, target in self.train_loader:
+                    self.model.train()
+                    if input_ != []:
 
-                    loss, _ = self.forward_pass(input_, condition, target)
-                    loss_val = loss.item()
-                    loss /= args.accumulate_step
+                        loss, _ = self.forward_pass(input_, condition, target)
+                        loss_val = loss.item()
+                        loss /= args.accumulate_step
 
-                    n_elements = input_.numel()
-                    if not math.isnan(loss_val):
-                        train_loss += n_elements * loss_val
-                        n_elements_total += n_elements
-                    self.n_sequences_total += input_.size(0)
+                        n_elements = input_.numel()
+                        if not math.isnan(loss_val):
+                            train_loss += n_elements * loss_val
+                            n_elements_total += n_elements
+                        self.n_sequences_total += input_.size(0)
 
-                    self.scaler.scale(loss).backward()
+                        self.scaler.scale(loss).backward()
 
-                    if self.train_step % args.accumulate_step == 0:
-                        self.scaler.unscale_(self.optimizer)
-                        if args.clip > 0:
-                            torch.nn.utils.clip_grad_norm_(self.model.parameters(), args.clip)
-                        self.scaler.step(self.optimizer)
-                        self.scaler.update()
-                        self.model.zero_grad()
+                        if self.train_step % args.accumulate_step == 0:
+                            self.scaler.unscale_(self.optimizer)
+                            if args.clip > 0:
+                                torch.nn.utils.clip_grad_norm_(self.model.parameters(), args.clip)
+                            self.scaler.step(self.optimizer)
+                            self.scaler.update()
+                            self.model.zero_grad()
 
-                    if args.scheduler != "constant":
-                        # linear warmup stage
-                        if self.train_step <= args.warmup_step:
-                            curr_lr = args.lr * self.train_step / args.warmup_step
-                            self.optimizer.param_groups[0]['lr'] = curr_lr
-                        else:
-                            self.scheduler.step()
+                        if args.scheduler != "constant":
+                            # linear warmup stage
+                            if self.train_step <= args.warmup_step:
+                                curr_lr = args.lr * self.train_step / args.warmup_step
+                                self.optimizer.param_groups[0]['lr'] = curr_lr
+                            else:
+                                self.scheduler.step()
 
-                if (self.train_step % args.gen_step == 0) and self.train_step > 0 and not args.regression:
-                    # Generate and save samples
-                    with torch.no_grad():
-                        self.model.eval()
-                        if args.max_gen_input_len > 0:
-                            max_input_len = args.max_gen_input_len
-                        else:
-                            max_input_len = args.tgt_len
+                    if (self.train_step % args.gen_step == 0) and self.train_step > 0 and not args.regression:
+                        # Generate and save samples
+                        with torch.no_grad():
+                            self.model.eval()
+                            if args.max_gen_input_len > 0:
+                                max_input_len = args.max_gen_input_len
+                            else:
+                                max_input_len = args.tgt_len
 
-                        primers = [["<START>"]]
-                        # Use fixed set of conditions
-                        if args.conditioning == "none":
-                            discrete_conditions = None
-                            continuous_conditions = None
-                            primers = [["<START>"] for _ in range(4)]
+                            primers = [["<START>"]]
+                            # Use fixed set of conditions
+                            if args.conditioning == "none":
+                                discrete_conditions = None
+                                continuous_conditions = None
+                                primers = [["<START>"] for _ in range(4)]
 
-                        elif args.conditioning == "discrete_token":
-                            discrete_conditions = [
-                                ["<V-2>", "<A-2>"],
-                                ["<V-2>", "<A2>"],
-                                ["<V2>", "<A-2>"],
-                                ["<V2>", "<A2>"],
-                                ]
-                            continuous_conditions = None
-                        elif args.conditioning in ["continuous_token", "continuous_concat"]:
-                            discrete_conditions = None
-                            continuous_conditions = [
-                                        [-0.8, -0.8], 
-                                        [-0.8, 0.8], 
-                                        [0.8, -0.8],
-                                        [0.8, 0.8]
-                                        ]
-                            
-                        generate(self.model, self.maps, self.device, self.gen_dir, args.conditioning, 
-                            debug=args.debug, verbose=False, amp=self.amp, discrete_conditions=discrete_conditions,
-                            continuous_conditions=continuous_conditions, min_n_instruments=1,
-                            gen_len=args.gen_len, max_input_len=max_input_len, 
-                            step=str(self.train_step), primers=primers,
-                            temperatures=[args.temp_note, args.temp_rest])
-                        
-                if (self.train_step % args.log_step == 0):
-                    # Print log
-                    if n_elements_total > 0:
-                        cur_loss = train_loss / n_elements_total
+                            elif args.conditioning == "discrete_token":
+                                discrete_conditions = [
+                                    ["<V-2>", "<A-2>"],
+                                    ["<V-2>", "<A2>"],
+                                    ["<V2>", "<A-2>"],
+                                    ["<V2>", "<A2>"],
+                                    ]
+                                continuous_conditions = None
+                            elif args.conditioning in ["continuous_token", "continuous_concat"]:
+                                discrete_conditions = None
+                                continuous_conditions = [
+                                            [-0.8, -0.8],
+                                            [-0.8, 0.8],
+                                            [0.8, -0.8],
+                                            [0.8, 0.8]
+                                            ]
+
+                            generate(self.model, self.maps, self.device, self.gen_dir, args.conditioning,
+                                debug=args.debug, verbose=False, amp=self.amp, discrete_conditions=discrete_conditions,
+                                continuous_conditions=continuous_conditions, min_n_instruments=1,
+                                gen_len=args.gen_len, max_input_len=max_input_len,
+                                step=str(self.train_step), primers=primers,
+                                temperatures=[args.temp_note, args.temp_rest])
+
+                    if (self.train_step % args.log_step == 0):
+                        # Print log
+                        if n_elements_total > 0:
+                            cur_loss = train_loss / n_elements_total
+                            elapsed_total = time.time() - self.init_time
+                            elapsed_interval = time.time() - train_interval_start
+                            hours_elapsed = elapsed_total / 3600.0
+                            hours_total = self.init_hours + hours_elapsed
+                            lr = self.optimizer.param_groups[0]['lr']
+                            log_str = '| Epoch {:3d} step {:>8d} | {:>6d} sequences  | {:>3.1f} h | lr {:.2e} ' \
+                                    '| ms/batch {:4.0f} | loss {:7.4f}'.format(
+                                self.epoch, self.train_step, self.n_sequences_total, hours_total, lr,
+                                elapsed_interval * 1000 / args.log_step, cur_loss)
+                            self.logging(log_str)
+                            self.csv_writer.update({"epoch": self.epoch, "step": self.train_step, "hour": hours_total,
+                                                    "lr": lr, "trn_loss": cur_loss, "val_loss": np.nan,
+                                                    "val_l1_v": np.nan, "val_l1_a": np.nan})
+                            train_loss = 0
+                            n_elements_total = 0
+                            self.n_good_output, self.n_nan_output = 0, 0
+                            train_interval_start = time.time()
+
+                            if not args.debug:
+                                # Save model
+                                model_fp = os.path.join(args.work_dir, 'model.pt')
+                                torch.save(self.model.state_dict(), model_fp)
+                                optimizer_fp = os.path.join(args.work_dir, 'optimizer.pt')
+                                torch.save(self.optimizer.state_dict(), optimizer_fp)
+                                scaler_fp = os.path.join(args.work_dir, 'scaler.pt')
+                                torch.save(self.scaler.state_dict(), scaler_fp)
+                                torch.save({"step": self.train_step, "hour": hours_total, "epoch": self.epoch,
+                                            "sample": self.n_sequences_total},
+                                            os.path.join(args.work_dir, 'stats.pt'))
+
+                    if (self.train_step % args.eval_step == 0):
+                        # Evaluate model
+                        val_loss, val_acc = self.evaluate()
                         elapsed_total = time.time() - self.init_time
-                        elapsed_interval = time.time() - train_interval_start
                         hours_elapsed = elapsed_total / 3600.0
                         hours_total = self.init_hours + hours_elapsed
                         lr = self.optimizer.param_groups[0]['lr']
-                        log_str = '| Epoch {:3d} step {:>8d} | {:>6d} sequences  | {:>3.1f} h | lr {:.2e} ' \
-                                '| ms/batch {:4.0f} | loss {:7.4f}'.format(
-                            self.epoch, self.train_step, self.n_sequences_total, hours_total, lr,
-                            elapsed_interval * 1000 / args.log_step, cur_loss)
-                        self.logging(log_str)
+                        self.logging('-' * 120)
+                        log_str = '| Eval  {:3d} step {:>8d} | now: {} | {:>3.1f} h' \
+                                '| valid loss {:7.4f} | ppl {:5.3f}'.format(
+                            self.train_step // args.eval_step, self.train_step,
+                            time.strftime("%d-%m - %H:%M"), hours_total,
+                            val_loss, math.exp(val_loss))
+                        if args.regression:
+                            log_str += " | l1_v: {:5.3f} | l1_a: {:5.3f}".format(
+                                val_acc["l1_v"], val_acc["l1_a"])
+
                         self.csv_writer.update({"epoch": self.epoch, "step": self.train_step, "hour": hours_total,
-                                                "lr": lr, "trn_loss": cur_loss, "val_loss": np.nan,
-                                                "val_l1_v": np.nan, "val_l1_a": np.nan})
-                        train_loss = 0
-                        n_elements_total = 0
-                        self.n_good_output, self.n_nan_output = 0, 0
-                        train_interval_start = time.time() 
+                                                    "lr": lr, "trn_loss": np.nan, "val_loss": val_loss})
 
-                        if not args.debug:  
-                            # Save model
-                            model_fp = os.path.join(args.work_dir, 'model.pt')
-                            torch.save(self.model.state_dict(), model_fp)
-                            optimizer_fp = os.path.join(args.work_dir, 'optimizer.pt')
-                            torch.save(self.optimizer.state_dict(), optimizer_fp)
-                            scaler_fp = os.path.join(args.work_dir, 'scaler.pt')
-                            torch.save(self.scaler.state_dict(), scaler_fp)
-                            torch.save({"step": self.train_step, "hour": hours_total, "epoch": self.epoch,
-                                        "sample": self.n_sequences_total}, 
-                                        os.path.join(args.work_dir, 'stats.pt'))
-                    
-                if (self.train_step % args.eval_step == 0):
-                    # Evaluate model
-                    val_loss, val_acc = self.evaluate()
-                    elapsed_total = time.time() - self.init_time
-                    hours_elapsed = elapsed_total / 3600.0
-                    hours_total = self.init_hours + hours_elapsed
-                    lr = self.optimizer.param_groups[0]['lr']
-                    self.logging('-' * 120)
-                    log_str = '| Eval  {:3d} step {:>8d} | now: {} | {:>3.1f} h' \
-                            '| valid loss {:7.4f} | ppl {:5.3f}'.format(
-                        self.train_step // args.eval_step, self.train_step,
-                        time.strftime("%d-%m - %H:%M"), hours_total, 
-                        val_loss, math.exp(val_loss))
-                    if args.regression:
-                        log_str += " | l1_v: {:5.3f} | l1_a: {:5.3f}".format(
-                            val_acc["l1_v"], val_acc["l1_a"])
+                        self.logging(log_str)
+                        self.logging('-' * 120)
 
-                    self.csv_writer.update({"epoch": self.epoch, "step": self.train_step, "hour": hours_total,
-                                                "lr": lr, "trn_loss": np.nan, "val_loss": val_loss})
+                        # dev-performance based learning rate annealing
+                        if args.scheduler == 'dev_perf':
+                            self.scheduler.step(val_loss)
 
-                    self.logging(log_str)
-                    self.logging('-' * 120)
-
-                    # dev-performance based learning rate annealing
-                    if args.scheduler == 'dev_perf':
-                        self.scheduler.step(val_loss)
-
+                    if self.train_step >= args.max_step:
+                        break
+                    self.train_step += 1
+                self.epoch += 1
                 if self.train_step >= args.max_step:
                     break
-                self.train_step += 1
-            self.epoch += 1
-            if self.train_step >= args.max_step:
-                break            
+            except:
+                pass
 
     def run(self):
 

@@ -13,7 +13,7 @@ import argparse
 Divides into bars. Encodes into tuples. Makes transposing easier. """
 
 def run(f, my_iter):
-    with ProcessPoolExecutor(max_workers=16) as executor:
+    with ProcessPoolExecutor(max_workers=2) as executor: # 原来是16
         results = list(tqdm(executor.map(f, my_iter), total=len(my_iter)))
     return results
 
@@ -26,7 +26,7 @@ def get_emotion_dict(path):
     return table
 
 def process(pr_path, event_sym2idx):
-    time.sleep(0.001)
+    # time.sleep(0.001) # ??
     mid = read_pianoroll(pr_path)
 
     bars = mid_to_bars(mid, event_sym2idx)
@@ -46,11 +46,11 @@ def main():
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
-    main_dir = "../../data_files/lpd_5"
-    input_dir = "../../data_files/lpd_5/lpd_5_full"
-    unique_pr_list_file = "../../data_files/features/pianoroll/unique_files.json"
+    main_dir = "../data_files/lpd"
+    input_dir = "../data_files/lpd/lpd_full"
+    unique_pr_list_file = "../data_files/features/pianoroll/unique_files111.json"
 
-    output_dir = os.path.join(main_dir, "lpd_5_full_transposable")
+    output_dir = os.path.join(main_dir, "lpd_full_transposable/test")
     
     os.makedirs(output_dir, exist_ok=True)
     output_maps_path = os.path.join(main_dir, "maps.pt")
@@ -76,7 +76,7 @@ def main():
             x[i]["bars"][j] = torch.from_numpy(x[i]["bars"][j])
         fname = x[i]["file"]
         output_path = os.path.join(output_dir, fname.replace(".npz", ".pt"))
-        torch.save(x[i], output_path)
+        torch.save(x[i], output_path) # 只能存入已有的文件夹内
 
     torch.save(maps, output_maps_path)
     

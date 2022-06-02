@@ -13,8 +13,8 @@ https://developer.spotify.com/dashboard/applications
 Then, fill in the variables client_id and client_secret
 """
 
-client_id = 'to fill in'
-client_secret = 'to fill in'
+client_id = 'bfe25b230848448fa2f5150c3b43fb0c'
+client_secret = '2a712208bf844a60ab6e8d1e9653f0d5'
 client_credentials_manager = SpotifyClientCredentials(client_id=client_id, client_secret=client_secret)
 sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
 

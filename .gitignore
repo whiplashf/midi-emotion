@@ -1,4 +1,4 @@
 __pycache__
 .vscode
-data_files/*
+src/data_files/*
 output/*

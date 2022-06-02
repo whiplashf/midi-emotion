@@ -192,7 +192,7 @@ def generate(model, maps, device, out_dir, conditioning, short_filename=False,
 
         # If there are less than n instruments, repeat generation for specific condition
         redo_primers, redo_discrete_conditions, redo_continuous_conditions = [], [], []
-        for i in range(gen_song_tensor.size(-1)):
+        for i in range(gen_song_tensor.size(-1)):  # 生成歌曲的数量 gen_song_tensor的size = 歌曲长度*歌曲数量
             if short_filename:
                 out_file_path = f"{i}"
             else:
@@ -205,7 +205,7 @@ def generate(model, maps, device, out_dir, conditioning, short_filename=False,
                 out_file_path += f"_{i}"
 
             if seed > 0:
-                out_file_path += f"_s{seed}"
+                out_file_path += f"_s{seed}"  # seed = 0？
 
             if continuous_conditions is not None:
                 condition = continuous_conditions[i, :].tolist()
@@ -219,7 +219,7 @@ def generate(model, maps, device, out_dir, conditioning, short_filename=False,
             symbols = ind_tensor_to_str(gen_song_tensor[:, i], maps["idx2tuple"], maps["idx2event"])
             n_instruments = get_n_instruments(symbols)
 
-            if verbose:
+            if verbose:  # 日志显示
                 print("")
             if n_instruments >= min_n_instruments:
                 mid = ind_tensor_to_mid(gen_song_tensor[:, i], maps["idx2tuple"], maps["idx2event"], verbose=False)
@@ -258,10 +258,10 @@ if __name__ == '__main__':
 
     parser = ArgumentParser()
 
-    parser.add_argument('--model_dir', type=str, help='Directory with model', required=True)
+    parser.add_argument('--model_dir', type=str, help='Directory with model', required=False, default="continuous_concat")   # 输入模型存储路径
     parser.add_argument('--no_cuda', action='store_true', help="Use CPU")
     parser.add_argument('--num_runs', type=int, help='Number of runs', default=1)
-    parser.add_argument('--gen_len', type=int, help='Max generation len', default=4096)
+    parser.add_argument('--gen_len', type=int, help='Max generation len', default=100) # 生成长度
     parser.add_argument('--max_input_len', type=int, help='Max input len', default=1216)
     parser.add_argument('--temp', type=float, nargs='+', help='Generation temperature', default=[1.2, 1.2])
     parser.add_argument('--topk', type=int, help='Top-k sampling', default=-1)
@@ -269,17 +269,17 @@ if __name__ == '__main__':
     parser.add_argument('--debug', action='store_true', help="Do not save anything")
     parser.add_argument('--seed', type=int, default=0, help="Random seed")
     parser.add_argument('--no_amp', action='store_true', help="Disable automatic mixed precision")
-    parser.add_argument("--conditioning", type=str, required=True,
+    parser.add_argument("--conditioning", type=str, required=False,
                     choices=["none", "discrete_token", "continuous_token",
-                             "continuous_concat"], help='Conditioning type')
+                             "continuous_concat"], help='Conditioning type', default="continuous_concat") #  默认模式
     parser.add_argument('--penalty_coeff', type=float, default=0.5,
                         help="Coefficient for penalizing repeating notes")
     parser.add_argument("--quiet", action='store_true', help="Not verbose")
     parser.add_argument("--short_filename", action='store_true')
     parser.add_argument('--batch_size', type=int, help='Batch size', default=4)
     parser.add_argument('--min_n_instruments', type=int, help='Minimum number of instruments', default=1)
-    parser.add_argument('--valence', type=float, help='Conditioning valence value', default=[None], nargs='+')
-    parser.add_argument('--arousal', type=float, help='Conditioning arousal value', default=[None], nargs='+')
+    parser.add_argument('--valence', type=float, help='Conditioning valence value', default=[-0.8, -0.8, 0.8, 0.8], nargs='+')  # 输入参数
+    parser.add_argument('--arousal', type=float, help='Conditioning arousal value', default=[-0.8, -0.8, 0.8, 0.8], nargs='+') # 输入参数
     parser.add_argument("--batch_gen_dir", type=str, default="")
 
     args = parser.parse_args()
@@ -357,10 +357,10 @@ if __name__ == '__main__':
     if args.valence == [None]:
         conditions = None
     elif len(args.valence) == 1:
-        for _ in range(args.batch_size):
+        for _ in range(args.batch_size):  # 如果只有一对condition, 就生成batch_size个样本
             conditions.append([args.valence[0], args.arousal[0]])
     else:
-        for i in range(len(args.valence)):
+        for i in range(len(args.valence)): # 如果condition大于一对，就生成对数个样本
             conditions.append([args.valence[i], args.arousal[i]])
 
     primers = [["<START>"]]
@@ -380,7 +380,7 @@ if __name__ == '__main__':
     
     elif args.conditioning == "none":
         discrete_conditions = None
-        primers = [["<START>"] for _ in range(args.batch_size)]
+        primers = [["<START>"] for _ in range(args.batch_size)] # 如果是vanilla模型，就输入batch_size个start，表示要生成这么多样本
 
     elif args.conditioning in ["continuous_token", "continuous_concat"]:
         primers = [["<START>"]]
@@ -394,7 +394,7 @@ if __name__ == '__main__':
             primers_run, discrete_conditions_run, continuous_conditions_run = generate(
                         model, maps, device, 
                         midi_output_dir, args.conditioning, discrete_conditions=discrete_conditions_run, 
-                        min_n_instruments=args.min_n_instruments,continuous_conditions=continuous_conditions_run,
+                        min_n_instruments=args.min_n_instruments, continuous_conditions=continuous_conditions_run,
                         penalty_coeff=args.penalty_coeff, short_filename=args.short_filename, top_p=args.topp, 
                         gen_len=args.gen_len, max_input_len=args.max_input_len,
                         amp=not args.no_amp, primers=primers_run, temperatures=args.temp, top_k=args.topk, 

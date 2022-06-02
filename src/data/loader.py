@@ -4,7 +4,7 @@ import torch
 from data.data_processing import transpose, tensor_to_ind_tensor
 from data.data_processing_reverse import tuples_to_str
 import sys
-sys.path.append("..")
+sys.path.append("../")
 from utils import get_n_instruments
 import os
 
@@ -70,12 +70,12 @@ class Loader:
             maps_list += extra_tokens
             self.maps["idx2tuple"] = {i: val for i, val in enumerate(maps_list)}
             self.maps["tuple2idx"] = {val: i for i, val in enumerate(maps_list)}
-        
+
         if max_samples is not None and not debug and not overfit:
             self.data = self.data[:max_samples]
 
         # roughly / 256, but *4 for flexibility. it is later cut anyway
-        self.n_bars = max(round(input_len / 256 * 4), 1)    
+        self.n_bars = max(round(input_len / 256 * 4), 1)
 
 
     def get_vocab_len(self):
@@ -91,112 +91,115 @@ class Loader:
         return len(self.data)
 
     def __getitem__(self, idx):
+        try:
+            if not self.overfit or self.one_sample is None:
+                data_path = os.path.join(self.data_folder, "lpd_full", self.data[idx]["file"][0],  self.data[idx]["file"] + ".pt")  #  增加了中间目录
+                item = torch.load(data_path)
+                all_bars = item["bars"]
 
-        if not self.overfit or self.one_sample is None:
-            data_path = os.path.join(self.data_folder, self.data[idx]["file"] + ".pt")
-            item = torch.load(data_path)
-            all_bars = item["bars"]
+                n_instruments = 0
+                j = 0
+                while j < self.n_try and n_instruments < self.min_n_instruments:
+                    # make sure to have n many instruments
+                    # choose random bar
+                    max_bar_start_idx = max(0, len(all_bars) - self.n_bars - 1)
+                    bar_start_idx = random.randint(0, max_bar_start_idx)
+                    bar_end_idx = min(len(all_bars), bar_start_idx + self.n_bars)
+                    bars = all_bars[bar_start_idx:bar_end_idx]
+                    # flatten
+                    if bars != []:
+                        bars = torch.cat(bars, dim=0)
+                        symbols = tuples_to_str(bars.cpu().numpy(), self.maps["idx2event"])
+                        n_instruments = get_n_instruments(symbols)
+                    else:
+                        n_instruments = 0
 
-            n_instruments = 0
-            j = 0
-            while j < self.n_try and n_instruments < self.min_n_instruments:
-                # make sure to have n many instruments
-                # choose random bar
-                max_bar_start_idx = max(0, len(all_bars) - self.n_bars - 1)
-                bar_start_idx = random.randint(0, max_bar_start_idx)
-                bar_end_idx = min(len(all_bars), bar_start_idx + self.n_bars)
-                bars = all_bars[bar_start_idx:bar_end_idx]
-                # flatten
-                if bars != []:
-                    bars = torch.cat(bars, dim=0)
-                    symbols = tuples_to_str(bars.cpu().numpy(), self.maps["idx2event"])
-                    n_instruments = get_n_instruments(symbols)
+                    j += 1
+                if n_instruments < self.min_n_instruments:
+                    return None, None, None
+
+                # transpose
+                if self.transpose_options != []:
+                    n_transpose = random.choice(self.transpose_options)
+                    bars = transpose(bars, n_transpose,
+                                    self.maps["transposable_event_inds"])
+
+                # convert to indices (final input)
+                bars = tensor_to_ind_tensor(bars, self.maps["tuple2idx"])
+
+                # Decide taking the sample from the start of a bar or not
+                r = np.random.uniform()
+
+                start_at_beginning = not (r > self.bar_start_prob and bars.size(0) > self.input_len)
+
+                if start_at_beginning:
+                    # starts exactly at bar location
+                    if self.start_token is not None:
+                        # add start token
+                        start_idx = torch.ShortTensor(
+                            [self.maps["tuple2idx"][self.start_token]])
+                        bars = torch.cat((start_idx, bars), dim=0)
                 else:
-                    n_instruments = 0
+                    # it doesn't have to start at bar location so shift arbitrarily
+                    start = np.random.randint(0, bars.size(0)-self.input_len)
+                    bars = bars[start:start+self.input_len+1]
 
-                j += 1
-            if n_instruments < self.min_n_instruments:
-                return None, None, None
+                if self.regression and self.use_cls_token:
+                    # prepend <CLS> token
+                    cls_idx = torch.ShortTensor(
+                        [self.maps["tuple2idx"][self.cls_token]])
+                    bars = torch.cat((cls_idx, bars), 0)
 
-            # transpose
-            if self.transpose_options != []:
-                n_transpose = random.choice(self.transpose_options)
-                bars = transpose(bars, n_transpose, 
-                                self.maps["transposable_event_inds"])
+                # for now, no auxiliary conditions
+                condition = torch.FloatTensor([np.nan, np.nan])
+                if self.conditioning == "discrete_token" and \
+                    (start_at_beginning or self.always_use_discrete_condition):
+                    # add emotion tokens
+                    valence, arousal = self.data[idx]["valence"], self.data[idx]["arousal"]
+                    valence = torch.ShortTensor([self.maps["tuple2idx"][valence]])
+                    arousal = torch.ShortTensor([self.maps["tuple2idx"][arousal]])
+                    bars = torch.cat((valence, arousal, bars), dim=0)
+                elif self.conditioning in ("continuous_token", "continuous_concat") or self.regression:
+                    # continuous conditions
+                    condition = torch.FloatTensor([self.data[idx]["valence"], self.data[idx]["arousal"]])
 
-            # convert to indices (final input)
-            bars = tensor_to_ind_tensor(bars, self.maps["tuple2idx"])
+                bars = bars[:self.input_len + 1]    # trim to length, +1 to include target
 
-            # Decide taking the sample from the start of a bar or not
-            r = np.random.uniform()
+                if self.pad_token is not None:
+                    n_pad = self.input_len + 1 - bars.shape[0]
+                    if n_pad > 0:
+                        # pad if necessary
+                        bars = torch.nn.functional.pad(bars, (0, n_pad), value=self.get_pad_idx())
 
-            start_at_beginning = not (r > self.bar_start_prob and bars.size(0) > self.input_len)
-            
-            if start_at_beginning:   
-                # starts exactly at bar location
-                if self.start_token is not None:
-                    # add start token
-                    start_idx = torch.ShortTensor(
-                        [self.maps["tuple2idx"][self.start_token]])
-                    bars = torch.cat((start_idx, bars), dim=0)
+                bars = bars.long()  # to int32
+                input_ = bars[:-1]
+
+                if self.regression:
+                    target = None   # will use condition as target
+                else:
+                    target = bars[1:]
+                    if self.conditioning == "continuous_token":
+                        # pad target from left, because input will get conditions concatenated
+                        # their sizes should match
+                        target = torch.nn.functional.pad(target, (condition.size(0), 0), value=self.get_pad_idx())
+
+                if self.overfit:
+                    self.one_sample = [input_, condition, target]
             else:
-                # it doesn't have to start at bar location so shift arbitrarily
-                start = np.random.randint(0, bars.size(0)-self.input_len)
-                bars = bars[start:start+self.input_len+1]
+                # sanity check, using one sample repeatedly
+                input_, condition, target = self.one_sample
 
-            if self.regression and self.use_cls_token:
-                # prepend <CLS> token
-                cls_idx = torch.ShortTensor(
-                    [self.maps["tuple2idx"][self.cls_token]])
-                bars = torch.cat((cls_idx, bars), 0)
+            return input_, condition, target
 
-            # for now, no auxiliary conditions
-            condition = torch.FloatTensor([np.nan, np.nan])
-            if self.conditioning == "discrete_token" and \
-                (start_at_beginning or self.always_use_discrete_condition):
-                # add emotion tokens
-                valence, arousal = self.data[idx]["valence"], self.data[idx]["arousal"]
-                valence = torch.ShortTensor([self.maps["tuple2idx"][valence]])
-                arousal = torch.ShortTensor([self.maps["tuple2idx"][arousal]])
-                bars = torch.cat((valence, arousal, bars), dim=0)
-            elif self.conditioning in ("continuous_token", "continuous_concat") or self.regression:
-                # continuous conditions
-                condition = torch.FloatTensor([self.data[idx]["valence"], self.data[idx]["arousal"]])
-                
-            bars = bars[:self.input_len + 1]    # trim to length, +1 to include target
-
-            if self.pad_token is not None:
-                n_pad = self.input_len + 1 - bars.shape[0]
-                if n_pad > 0:
-                    # pad if necessary
-                    bars = torch.nn.functional.pad(bars, (0, n_pad), value=self.get_pad_idx()) 
-            
-            bars = bars.long()  # to int32
-            input_ = bars[:-1]
-
-            if self.regression:
-                target = None   # will use condition as target
-            else:
-                target = bars[1:]
-                if self.conditioning == "continuous_token":
-                    # pad target from left, because input will get conditions concatenated
-                    # their sizes should match
-                    target = torch.nn.functional.pad(target, (condition.size(0), 0), value=self.get_pad_idx()) 
-            
-            if self.overfit:
-                self.one_sample = [input_, condition, target]
-        else:
-            # sanity check, using one sample repeatedly
-            input_, condition, target = self.one_sample
-
-        return input_, condition, target
+        except:
+            return None
 
 
-    
 
-        
 
-        
+
+
+
 
 
 

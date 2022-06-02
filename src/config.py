@@ -7,8 +7,8 @@ parser = argparse.ArgumentParser(description='Generates emotion-based symbolic m
 parser.add_argument("--conditioning", type=str, required=False, default="continuous_concat",
                     choices=["none", "discrete_token", "continuous_token",
                              "continuous_concat"], help='Conditioning type')
-parser.add_argument("--data_folder", type=str, default="../data_files/lpd_5/lpd_5_full_transposable")
-parser.add_argument('--full_dataset', action="store_true",
+parser.add_argument("--data_folder", type=str, default="./data_files/lpd/lpd_full_transposable")  # lpd_5_full_transposable
+parser.add_argument('--full_dataset', action="store_true",  # 命令行传参，默认是false
                     help='Use LPD-full dataset')
 parser.add_argument('--n_layer', type=int, default=20,
                     help='number of total layers')
@@ -17,7 +17,7 @@ parser.add_argument('--n_head', type=int, default=16,
 parser.add_argument('--d_model', type=int, default=768,
                     help='model dimension')
 parser.add_argument('--d_condition', type=int, default=192,
-                    help='condition dimension (if continuous_concat is used)')
+                    help='condition dimension (if continuous_concat is used)')  # condition的维度，默认192？
 parser.add_argument('--d_inner', type=int, default=768*4,
                     help='inner dimension in FF')
 parser.add_argument('--tgt_len', type=int, default=1216, #1216, #1152
@@ -60,7 +60,7 @@ parser.add_argument('--decay_rate', type=float, default=0.5,
                     help='decay factor when ReduceLROnPlateau is used')
 parser.add_argument('--clip', type=float, default=1.0,
                     help='gradient clipping')
-parser.add_argument('--batch_size', type=int, default=4,
+parser.add_argument('--batch_size', type=int, default=2, # 原来是4
                     help='batch size')
 parser.add_argument('--accumulate_step', type=int, default=1,
                     help='accumulate gradients (multiplies effective batch size')
@@ -88,7 +88,7 @@ parser.add_argument('--overfit', action='store_true',
                     help='Works on a single sample')
 parser.add_argument('--find_lr', action='store_true',
                     help='Run learning rate finder')
-parser.add_argument('--num_workers', default=8, type=int,
+parser.add_argument('--num_workers', default=2, type=int, # 默认8
                     help='Number of cores for data loading')
 parser.add_argument('--bar_start_prob', type=float, default=0.5,
                     help=('probability of training sample'
@@ -106,7 +106,7 @@ parser.add_argument('--reset_scaler', action="store_true",
 parser.add_argument('--exhaustive_eval', action="store_true",
                     help="Use data exhaustively (for final evaluation)")
 parser.add_argument('--regression', action="store_true",
-                    help="Train a regression model")
+                    help="Train a regression model") # 训练一个回归模型
 parser.add_argument("--always_use_discrete_condition", action="store_true", 
                 help="Discrete tokens are used for every sequence")
 parser.add_argument("--regression_dir", type=str, default=None,
